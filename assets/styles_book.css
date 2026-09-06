@@ -65,7 +65,7 @@ h1.chapter-title, h1 {
 p.chapter-author {
   text-align: center;
   text-indent: 0 !important;
-  font-family: "KaiTi", "STKaiti", "Songti SC", "Source Han Serif SC", serif;
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "SimKai", "BiauKai", "FZKai-Z03S", serif;
   font-size: 0.95em;
   color: #718096;
   letter-spacing: 0.25em;
@@ -177,13 +177,37 @@ p.dialogue {
   line-height: 1.85;
 }
 
+/* 中文出版级排版规范：以楷体代斜体 (楷体直立，杜绝机械倾斜伪斜体) */
+em, i, cite, dfn {
+  font-style: normal;
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "SimKai", "BiauKai", "FZKai-Z03S", "Georgia", serif;
+}
+
+strong em, em strong, b i, i b {
+  font-style: normal;
+  font-weight: bold;
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "SimKai", "BiauKai", "FZKai-Z03S", "Georgia", serif;
+}
+
 p.stage-direction {
   text-indent: 2em;
-  font-style: italic;
+  font-style: normal;
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "SimKai", "BiauKai", "FZKai-Z03S", "Georgia", serif;
   color: #4a5568;
   margin-top: 0.75em;
   margin-bottom: 0.75em;
   line-height: 1.8;
+}
+
+p.stage-direction em, p.stage-direction i {
+  font-style: normal;
+  font-family: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  p.stage-direction {
+    color: #a0aec0;
+  }
 }
 
 p.play-meta {

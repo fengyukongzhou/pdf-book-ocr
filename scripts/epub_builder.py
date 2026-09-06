@@ -161,8 +161,8 @@ tags:
 
             # Tag dialogue paragraphs
             text = re.sub(r'<p>(<strong>[^*<]+</strong>[：:])', tag_p, text)
-            # Tag stage direction paragraphs
-            text = re.sub(r'<p>(<em>[^<]+</em>)</p>', r'<p class="stage-direction">\1</p>', text)
+            # Tag stage direction paragraphs (single-line emphasis paragraphs)
+            text = re.sub(r'<p>\s*(<em>.*?</em>)\s*</p>', r'<p class="stage-direction">\1</p>', text)
             
             # Ensure popover class on <aside epub:type="footnote">
             text = re.sub(r'<aside\s+([^>]*epub:type="footnote"[^>]*)>', r'<aside \1 class="footnote-popup">', text)

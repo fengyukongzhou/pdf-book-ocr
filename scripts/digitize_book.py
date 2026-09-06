@@ -9,8 +9,8 @@ digitize_book.py
 1. 【环境自检与自愈 --doctor】：一键诊断 Python、PyMuPDF、Pandoc、BeautifulSoup，并提供一键安装指引。
 2. 【智能书名清洗】：自动剥离文件名中的 Z-Library、网盘等杂音标记，自动识别书名与作者。
 3. 【体裁自适应识别】：自动检测图书是小说、戏剧还是学术专著，自动挂载最佳排版引擎。
-4. 【双轨极速模式】：
-   - 数字文字版 PDF：5 秒内本地无损提取，耗费 0 Token 直接生成精排 EPUB。
+4. 【智能双轨省 Token 策略】：
+   - 数字文字版 PDF：本地秒级提取纯文本，交由轻量文本 Agent 完成语义重构（Token 消耗约为视觉转写的 ~10%）。
    - 扫描版 PDF：自动切分微型分片、生成并发任务队列、自动缝合断缝与隔离脚注。
 5. 【成果看板生成】：生成包含封面图、字数统计、目录树与脚注匹配率的独立 HTML/Markdown 可视化看板。
 """
@@ -177,14 +177,14 @@ def run_pipeline(pdf_path, out_dir=None, chunk_size=15, title=None, author=None,
     log(f"体裁推断: {'戏剧/剧本' if is_drama else '散文/小说/专著'}")
     
     if is_digital and not force_scan:
-        log("检测到原生可检索文字层 (Digital PDF)，启动【0-Token 极速直提模式】！", 'step')
+        log("检测到原生可检索文字层 (Digital PDF)，启动【低 Token 文本提取 + 语义重构模式】！", 'step')
         return extract_digital_book(doc, book_title, book_author, cover_path, out_dir, is_drama)
     else:
         log("检测为无文字层扫描版 (Scanned PDF)，启动【高保真切分与多模态 OCR 规划】！", 'step')
         return plan_scanned_book(doc, pdf_path, book_title, book_author, cover_path, out_dir, chunk_size, is_drama)
 
 def extract_digital_book(doc, title, author, cover_path, out_dir, is_drama):
-    """文字版 PDF 本地无损直提（耗费 0 Token，5秒搞定）"""
+    """文字版 PDF 本地文本提取（仍需轻量 Agent 做段落缝合与脚注绑定才能达到出版级）"""
     total_pages = len(doc)
     toc = doc.get_toc()
     
@@ -235,7 +235,7 @@ def extract_digital_book(doc, title, author, cover_path, out_dir, is_drama):
         out_master_md=master_md
     )
     
-    log(f"数字版图书数字化完成！耗费 0 Token！", 'ok')
+    log(f"数字版文本提取完成！注意：原始文本仍需轻量 Agent 做段落缝合与脚注绑定才能达到出版级。", 'ok')
     log(f"EPUB 电子书: {epub_path}", 'ok')
     log(f"Obsidian 主笔记: {master_md}", 'ok')
     return epub_path

@@ -1,11 +1,13 @@
 ---
 name: pdf-book-ocr
-description: 低 Token 消耗的 PDF 图书全流程 OCR 数字化与出版级 EPUB 制作引擎。支持对任意无文字层扫描版或混合版 PDF 图书进行零 Token 预检、智能物理切分、并发多模态视觉 OCR、断缝代码级核验、章节命名空间脚注防碰撞、排版净化与出版级 EPUB 3 及 Obsidian 典藏 Markdown 一键生成。适用场景包括：(1) 用户提出“OCR 这本书”、“切分 PDF 后 OCR”、“制作 EPUB”、“扫描版电子书数字化”、“节省 token 做 OCR”；(2) 面对百页级大型扫描 PDF 需避免爆上下文与 API 配额耗尽；(3) 需要高保真保留戏剧/诗歌排版与出版级原生双向气泡弹窗脚注。
+description: 低 Token 消耗的 PDF 图书全流程 OCR 数字化与出版级 EPUB 制作引擎。支持对任意无文字层扫描版或混合版 PDF 图书进行高效预检、智能物理切分、并发多模态视觉 OCR、断缝代码级核验、章节命名空间脚注防碰撞、排版净化与出版级 EPUB 3 及 Obsidian 典藏 Markdown 一键生成。适用场景包括：(1) 用户提出“OCR 这本书”、“切分 PDF 后 OCR”、“制作 EPUB”、“扫描版电子书数字化”、“节省 token 做 OCR”；(2) 面对百页级大型扫描 PDF 需避免爆上下文与 API 配额耗尽；(3) 需要高保真保留戏剧/诗歌排版与出版级原生双向气泡弹窗脚注。
 ---
 
 # PDF Book OCR (低 Token 出版级图书 OCR 与数字化引擎)
 
-本技能提供一套**工业级、适用于任意通用 PDF 图书**的低 Token 消耗 OCR 数字化流水线。通过“本地 0-Token 物理预处理 + 上下文隔离的并发子智能体视觉转写 + 确定性脚本自动清洗缝合”，彻底杜绝超长上下文导致的 Token 浪费、幻觉遗漏与 API 配额限制。
+本技能提供一套**工业级、适用于任意通用 PDF 图书**的低 Token 消耗 OCR 数字化流水线。通过"本地确定性预处理（封面提取、文字层探测、物理切片） + 上下文隔离的并发子智能体语义转写 + 确定性脚本自动清洗缝合"，彻底杜绝超长上下文导致的 Token 浪费、幻觉遗漏与 API 配额限制。
+
+> ⚠️ **设计诚信声明**：即使 PDF 含有原生文字层，本地脚本直接提取的原始文本也**无法直接达到出版级品质**——PDF 底层是坐标画布而非文档结构，存在行末硬换行、页眉页脚混入正文、脚注系统彻底丧失语义、劣质 OCR 伪文字层错字率极高等不可回避的技术鸿沟。因此本 Skill 对数字版 PDF 采用"本地文本提取 + 轻量级文本 Agent 语义重构"双步策略，而非虚假的"0-Token 秒级出书"。
 
 > 📖 **开源仓库与详细使用指南**：请查阅 [README.md](README.md)。
 
@@ -18,17 +20,17 @@ description: 低 Token 消耗的 PDF 图书全流程 OCR 数字化与出版级 E
 ```
 [原始 PDF 图书 (100~500+页)]
        │
-       ▼ (Layer 0: 本地 0-Token 探针)
- digitize_book.py ──> 抽高清封面、检文字层、生成分片与任务单 (subagent_jobs.json)
+       ▼ (Layer 0: 本地确定性预处理)
+ digitize_book.py ──> 抽高清封面、检文字层质量、生成分片与任务单 (subagent_jobs.json)
        │
    ┌───┴───────────────────────────────────────┐
    │ [数字文字版 PDF]                          │ [扫描版 PDF]
    ▼                                           ▼ (Layer 1: 物理微切片)
-本地无损直提 (0 Token 秒级完成)          pdf_slicer ──> 10~15 页微型 PDF
+本地提取纯文本 (极低 Token)              pdf_slicer ──> 10~15 页微型 PDF
    │                                           │
-   │                                           ▼ (Layer 2: 隔离上下文并发视觉转写)
-   │                                     ocr_specialist ──> 各子智能体独享 15 页上下文
-   │                                     (并发 10~25 个)      写入 raw_md/*.md，父会话 0 膨胀
+   ▼ (Layer 1.5: 轻量文本 Agent 语义重构)      ▼ (Layer 2: 隔离上下文并发视觉转写)
+text_restructurer ──> 段落缝合、           ocr_specialist ──> 各子智能体独享 15 页上下文
+ 脚注绑定、页眉剥离、格式升维             (并发 10~25 个)      写入 raw_md/*.md
    │                                           │
    │                                           ▼ (Layer 3: 确定性代码合流与清洗)
    │                                     seam_auditor ──> 逐字断缝核验，确保 0 丢句、0 重复
@@ -53,10 +55,10 @@ description: 低 Token 消耗的 PDF 图书全流程 OCR 数字化与出版级 E
 
 1. **自动体检**：
    运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --doctor`，确认依赖正常。
-2. **执行切分与检测**：
+2. **执行探测与预处理**：
    运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py "<PDF文件路径>"`。
-   - 若检测为数字版：脚本自动生成 EPUB，直接向用户交货！
-   - 若检测为扫描版：读取输出目录下的 `subagent_jobs.json`。
+   - 若检测为**高质量数字版**（文字层覆盖率 > 75% 且采样抽检无乱码）：脚本本地提取纯文本至 `raw_md/`，但仍需派发**轻量级文本 Agent** 对原始文本进行段落缝合、页眉剥离、脚注绑定与 Markdown 格式升维（Token 消耗远低于视觉转写，约节省 90%+）。
+   - 若检测为**扫描版或劣质文字层**：读取输出目录下的 `subagent_jobs.json`，走视觉切片 OCR 流水线。
 3. **并发派发子智能体转写**：
    读取 `references/prompt_templates.md` 的提示词模板，根据 `subagent_jobs.json` 批量使用 `invoke_subagent` 派发 `ocr_specialist` 并发转写微型分片。
    - **铁律**：要求子智能体将 Markdown 直接写入磁盘 `raw_md/*.md`，完成后仅回复一句完成摘要，保持主对话极简。
@@ -93,7 +95,7 @@ python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --assemble "百年孤
 
 | 模块脚本 | 核心功能与命令 |
 | :--- | :--- |
-| `pdf_analyzer.py` | 0-Token 探针：提取 300 DPI 封面、检文字层、解析书签生成 `slice_plan.json` |
+| `pdf_analyzer.py` | 本地预检探针：提取 300 DPI 封面、检文字层质量与置信度、解析书签生成 `slice_plan.json` |
 | `pdf_slicer.py` | 物理切片：将原始 PDF 切割为 10~15 页的微型分片存入 `parts/` |
 | `seam_auditor.py` | 断缝质检：扫描相邻切片接缝（尾部 80 字与首部 80 字），确保 0 丢句、0 重复 |
 | `chapter_assembler.py` | 章节隔离：合并切片，将分片内局部脚注重构为 `[^c01_1]` 全局唯一键，修复列表缩进 |

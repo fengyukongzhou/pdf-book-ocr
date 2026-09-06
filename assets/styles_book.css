@@ -1,0 +1,225 @@
+@charset "utf-8";
+
+/* ===================================================
+   EPUB 3 Classical Book Styling (低Token出版级排版规范)
+   =================================================== */
+
+@namespace epub "http://www.idpf.org/2007/ops";
+
+body, div, dl, dt, dd, ul, ol, li, h1, h2, h3, h4, h5, h6, p, blockquote {
+  margin: 0;
+  padding: 0;
+}
+
+body.calibre {
+  font-family: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "SimSun", serif;
+  font-size: 1em;
+  line-height: 1.85;
+  color: #1a202c;
+  background-color: #fcfbf9;
+  text-align: justify;
+  text-justify: inter-ideograph;
+  word-break: break-word;
+  padding: 4% 5%;
+}
+
+@media (prefers-color-scheme: dark) {
+  body.calibre {
+    background-color: #121212;
+    color: #d1d5db;
+  }
+}
+
+p {
+  text-indent: 2em;
+  margin-top: 0;
+  margin-bottom: 0.8em;
+  line-height: 1.85;
+}
+
+p.first-para {
+  text-indent: 0;
+}
+
+/* 标题系统 (出版级古典书卷感) */
+h1.chapter-title, h1 {
+  font-family: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "STSong", "SimSun", serif;
+  font-size: 1.65em;
+  font-weight: 600;
+  color: #1a202c;
+  line-height: 1.4;
+  margin-top: 3.2em;
+  margin-bottom: 0.8em;
+  text-indent: 0 !important;
+  text-align: center;
+  letter-spacing: 0.15em;
+}
+
+@media (prefers-color-scheme: dark) {
+  h1.chapter-title, h1 {
+    color: #e2e8f0;
+  }
+}
+
+/* 篇章署名 / 副标题 / 译者 */
+p.chapter-author {
+  text-align: center;
+  text-indent: 0 !important;
+  font-family: "KaiTi", "STKaiti", "Songti SC", "Source Han Serif SC", serif;
+  font-size: 0.95em;
+  color: #718096;
+  letter-spacing: 0.25em;
+  margin-top: 0;
+  margin-bottom: 3.2em;
+}
+
+@media (prefers-color-scheme: dark) {
+  p.chapter-author {
+    color: #a0aec0;
+  }
+}
+
+p.chapter-author::after, h1.no-author::after {
+  content: "";
+  display: block;
+  width: 40px;
+  height: 1px;
+  background-color: #cbd5e0;
+  margin: 1.8em auto 0 auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  p.chapter-author::after, h1.no-author::after {
+    background-color: #4a5568;
+  }
+}
+
+h2.section-title, h2 {
+  font-family: "PingFang SC", "Source Han Sans SC", "Heiti SC", sans-serif;
+  font-size: 1.22em;
+  font-weight: 600;
+  color: #1a365d;
+  margin-top: 2em;
+  margin-bottom: 0.9em;
+  padding-left: 0.5em;
+  border-left: 4px solid #1a365d;
+  text-indent: 0;
+  line-height: 1.4;
+}
+
+h3 {
+  font-family: "PingFang SC", "Source Han Sans SC", "Heiti SC", sans-serif;
+  font-size: 1.08em;
+  font-weight: 600;
+  color: #2c5282;
+  margin-top: 1.6em;
+  margin-bottom: 0.8em;
+  text-indent: 0;
+  line-height: 1.4;
+}
+
+/* 引用块与诗歌/唱词 */
+blockquote, .case-quote {
+  margin: 1.5em 0;
+  padding: 1em 1.25em;
+  background-color: #f7fafc;
+  border-left: 3px solid #63b3ed;
+  border-radius: 0 4px 4px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  blockquote, .case-quote {
+    background-color: #1a202c;
+    border-left-color: #3182ce;
+  }
+}
+
+blockquote p, .case-quote p {
+  text-indent: 0 !important;
+  margin-bottom: 0.6em;
+  color: #2d3748;
+  font-size: 0.96em;
+  line-height: 1.8;
+  text-align: justify;
+}
+
+@media (prefers-color-scheme: dark) {
+  blockquote p, .case-quote p {
+    color: #cbd5e0;
+  }
+}
+
+blockquote p:last-child, .case-quote p:last-child {
+  margin-bottom: 0;
+}
+
+/* 列表系统 */
+ul, ol {
+  margin: 0.8em 0 1em 2em;
+  padding: 0;
+}
+
+ul {
+  list-style-type: none;
+}
+
+li {
+  margin-bottom: 0.45em;
+  text-indent: 0;
+  line-height: 1.75;
+}
+
+/* 戏剧与对话专属排版 */
+p.dialogue {
+  text-indent: 2em;
+  margin-top: 0;
+  margin-bottom: 0.45em;
+  line-height: 1.85;
+}
+
+p.stage-direction {
+  text-indent: 2em;
+  font-style: italic;
+  color: #4a5568;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+  line-height: 1.8;
+}
+
+p.play-meta {
+  text-indent: 2em;
+  margin-top: 0;
+  margin-bottom: 0.8em;
+  line-height: 1.85;
+}
+
+/* EPUB 3 脚注与弹出式气泡 */
+sup.note-ref, .footnote-ref {
+  vertical-align: super;
+  font-size: 0.75em;
+  line-height: 0;
+  margin-left: 2px;
+}
+
+a.noteref, a.footnote-ref {
+  color: #3182ce;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0 1px;
+}
+
+aside[epub\:type~="footnote"], aside.footnote-popup {
+  display: block;
+  margin: 1em 0;
+  padding: 0.8em 1em;
+  background-color: #f8fafc;
+  border-left: 3px solid #63b3ed;
+  border-radius: 0 4px 4px 0;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1.5em auto;
+}

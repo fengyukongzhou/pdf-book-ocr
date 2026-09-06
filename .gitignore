@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.tmp
+*.tmp.epub
+*.log
+
+# Book digitizer working directories and temporary slices
+*_output/
+*_work/
+raw_md/
+parts/
+assembled_chapters/
+slice_plan.json
+subagent_jobs.json
+seam_report.md
+
+# Operating System & Editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.skill

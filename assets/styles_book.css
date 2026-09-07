@@ -12,7 +12,7 @@ body, div, dl, dt, dd, ul, ol, li, h1, h2, h3, h4, h5, h6, p, blockquote {
 }
 
 body.calibre {
-  font-family: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "SimSun", serif;
+  font-family: "DK-Songti", "FZShuSong-Z01S", "FZShuSong", "方正书宋_GBK", "方正书宋", "FZZhongSong-B04S", "方正中宋", "方正新书宋", "Source Han Serif SC", "Source Han Serif CN", "Source Han Serif", "思源宋体", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", "宋体", serif;
   font-size: 1em;
   line-height: 1.85;
   color: #1a202c;
@@ -41,11 +41,11 @@ p.first-para {
   text-indent: 0;
 }
 
-/* 标题系统 (出版级古典书卷感) */
+/* 标题系统 */
 h1.chapter-title, h1 {
-  font-family: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "STSong", "SimSun", serif;
+  font-family: "DK-Songti", "FZShuSong-Z01S", "FZShuSong", "方正书宋_GBK", "方正书宋", "FZZhongSong-B04S", "FZZhongSong", "方正中宋_GBK", "方正中宋", "方正新书宋", "Source Han Serif SC", "Source Han Serif CN", "Source Han Serif", "思源宋体", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", "宋体", serif;
   font-size: 1.65em;
-  font-weight: 600;
+  font-weight: bold;
   color: #1a202c;
   line-height: 1.4;
   margin-top: 3.2em;

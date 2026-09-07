@@ -161,6 +161,8 @@ tags:
 
             # Tag dialogue paragraphs
             text = re.sub(r'<p>(<strong>[^*<]+</strong>[：:])', tag_p, text)
+            # Split metadata lines (时代/地点) joined by <br /> so each line receives full paragraph indent
+            text = re.sub(r'<br\s*/?>\s*(<strong>(?:地点|时代|登场人物)</strong>[：:])', r'</p>\n<p class="play-meta">\1', text)
             # Tag stage direction paragraphs (single-line emphasis paragraphs)
             text = re.sub(r'<p>\s*(<em>.*?</em>)\s*</p>', r'<p class="stage-direction">\1</p>', text)
             

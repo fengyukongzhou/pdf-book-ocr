@@ -1,8 +1,8 @@
-# 📚 PDF Book OCR
+# PDF Book OCR
 
 <p align="center">
-  <strong>低 Token 消耗的工业级 PDF 图书数字化与出版级 EPUB 3 制作引擎</strong><br>
-  <em>Low-Token, Publishing-Grade Book OCR & EPUB/Markdown Digitization Pipeline</em>
+  <strong>基于分片与模型协作的 PDF 图书转 EPUB / Markdown 工具</strong><br>
+  <em>A pipeline for converting PDF books to EPUB and Markdown</em>
 </p>
 
 <p align="center">
@@ -10,83 +10,81 @@
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/Engine-PyMuPDF%20%7C%20Pandoc-blue?style=flat-square" alt="Engine">
   <img src="https://img.shields.io/badge/Output-EPUB%203%20%7C%20Obsidian-purple?style=flat-square" alt="Output">
-  <img src="https://img.shields.io/badge/Token_Cost-Lowest%20Possible-orange?style=flat-square" alt="Token Efficiency">
 </p>
 
 ---
 
-## 💡 为什么需要 PDF Book OCR？
+## 背景与解决的问题
 
-将扫描版 PDF、古籍影印本或学术专著转化为高质量的电子书，传统方案常常面临几大难以逾越的鸿沟：
+将扫描版 PDF、古籍影印本或学术专著转换为可重排的电子书（EPUB/Markdown）时，常见以下问题：
 
-1. **上下文膨胀与 Token 爆炸**：数百页的 PDF 直接塞给大语言模型，瞬间消耗数十万甚至上百万 Token，导致上下文窗口溢出崩溃；直接调用商用 OCR API 则受昂贵费用和每日配额卡脖子。
-2. **切片拼接处的断句丢字与重复**：多模型分片识别时，跨页分界线往往丢失句子，或两片首尾大段内容重复。
-3. **Pandoc 全局脚注交叉覆盖惨剧**：当全书多个章节均使用 `[^1]`、`[^2]` 时，EPUB 编译器在全局作用域下会将后一章的脚注覆盖前一章，导致全书注释错乱串台。
-4. **注释翻页跳转极度折磨**：在手机或电纸书上阅读时，点击注释强行跳转至书末，翻回正文体验极差。
-5. **复杂文体排版坍塌**：戏剧台词缩进错乱、舞台说明与台词挤成一坨、列表语法因缺失空行而塌陷为普通长文本。
+1. **上下文长度与成本**：书籍页数较多时，单次输入模型易超出上下文窗口限制；调用外部 OCR 接口也存在额度约束。
+2. **分片拼接的文本连续性**：按页切片分发识别时，页面分界处可能出现重叠文本或遗漏字符。
+3. **同名脚注的键名冲突**：若各章节均使用 `[^1]`、`[^2]` 等同名标识，经 Pandoc 全局编译时后章内容会覆盖前章。
+4. **注释交互形式**：未配置特定属性的注释链接在部分阅读器中会跳转至文末，中断阅读。
+5. **特定文体结构**：戏剧对话、舞台说明和列表项若缺少格式标记，排版容易退化为普通连续文本。
 
-**PDF Book OCR** 结合了"本地确定性预处理探针 + 微型切片隔离并发转写 + 确定性代码断缝质检与章节脚注隔离 + 出版级 EPUB 3 双向气泡增强"，彻底根治上述所有顽疾。
+**PDF Book OCR** 通过预处理探测、分片识别、接缝字符比对、脚注命名空间重映射及后处理脚本处理上述问题。
 
-> ⚠️ **设计诚信声明**：即使 PDF 含有原生文字层，本地脚本直接提取的原始文本也**无法直接达到出版级品质**。PDF 底层本质是坐标画布（PostScript 演变），内部不存在"段落""标题""脚注"等文档结构语义——行末硬换行会撕裂句子、页眉页脚会混入正文、脚注变成无法绑定的孤立碎片、网盘流传的劣质伪文字层更是错字率极高。因此本项目对数字版 PDF 采用"本地文本提取 + 轻量级 Agent 语义重构"双步策略（Token 消耗仅为视觉转写的 ~10%），而非虚假的"0-Token 秒级出书"。
+> **技术边界说明**：PDF 为基于二维坐标的页面描述格式，底层不包含段落、标题、层级等文档结构信息。带文字层的 PDF 直接提取文本后，常见换行断裂、页眉页脚混入正文以及脚注脱落现象；部分扫描件内嵌的 OCR 文本可能存在错字。因此，本项目对数字版 PDF 采用提取文本后重构段落与注释的流程，对图像扫描件采用分片识别流程。
 
 ---
 
-## 🏗️ 四层分治架构与省 Token 原理
+## 处理流程
 
 ```
 [原始 PDF 图书 (100~500+页)]
        │
-       ▼ (Layer 0: 本地确定性预处理)
- digitize_book.py ──> 提取 300 DPI 超清封面、检文字层质量与置信度、生成切片任务单
+       ▼ (Layer 0: 预处理)
+ digitize_book.py ──> 提取封面图像、检测文字层质量、生成切片任务列表
        │
    ┌───┴───────────────────────────────────────────┐
-   │ [数字文字版 PDF (检索率 > 75%)]               │ [无文字扫描版 / 劣质伪文字层 PDF]
-   ▼                                               ▼ (Layer 1: 物理微切片)
-本地提取纯文本 (极低 Token)                  pdf_slicer.py ──> 10~15 页独立微型 PDF (parts/)
+   │ [包含可用文字层的 PDF]                         │ [图像扫描版 / 文字层不完整 PDF]
+   ▼                                               ▼ (Layer 1: 切片)
+提取文本流                                   pdf_slicer.py ──> 切分为 10~15 页子文件
    │                                               │
-   ▼ (Layer 1.5: 轻量文本 Agent 语义重构)          ▼ (Layer 2: 隔离上下文并发视觉转写)
-text_restructurer ──> 段落缝合、               ocr_specialist ──> 各子智能体独享 15 页上下文
- 页眉剥离、脚注绑定、格式升维                 (并发 10~25 个)      写入 raw_md/*.md
+   ▼ (Layer 1.5: 文本重构)                         ▼ (Layer 2: 分片识别)
+text_restructurer ──> 规整段落、               ocr_specialist ──> 各子任务处理对应子文件
+ 清理页眉页脚、匹配脚注、转换格式             写入 raw_md/*.md
    │                                               │
-   │                                               ▼ (Layer 3: 确定性代码合流与质检)
-   │                                         seam_auditor.py ────> 逐字断缝核验
-   │                                         chapter_assembler.py ─> 章节脚注命名空间隔离
+   │                                               ▼ (Layer 3: 接缝比对与合流)
+   │                                         seam_auditor.py ────> 比对首尾公共子串
+   │                                         chapter_assembler.py ─> 为脚注键添加章节前缀
    │                                               │
    └───────────────────────┬───────────────────────┘
-                           ▼ (Layer 4: 出版级编译与格式净化)
-  epub_builder.py ───> 调用 Pandoc 编译 EPUB 3 + 注入古典纸书 CSS + 激活双向气泡弹窗
+                           ▼ (Layer 4: 样式配置与编译)
+  epub_builder.py ───> 调用 Pandoc 生成 EPUB 3，注入 CSS 并配置注释属性
                            │
        ┌───────────────────┴───────────────────┐
        ▼                                       ▼
-《书名》.epub (微信读书/Apple Books/Kindle)    《书名》.md (Obsidian 典藏主笔记)
+《书名》.epub (流式电子书)                   《书名》.md (Markdown 笔记)
 ```
 
 ---
 
-## ✨ 核心特性
+## 功能特性
 
-- ⚡ **智能双轨省 Token 策略**：自动探针检测文字层质量。若 PDF 含有高质量原生文字层，本地秒级提取纯文本后交由轻量文本 Agent 完成语义重构（段落缝合、页眉剥离、脚注绑定），**Token 消耗仅为视觉转写的 ~10%**；若为扫描版或劣质伪文字层，则自动走视觉切片 OCR 流水线。
-- 🛡️ **微切片并发隔离转写**：扫描版按 10~15 页自动切片，并发派发给独立的子智能体（Subagent）。主对话只接收进度汇报，父对话 Token 消耗控制在 < 2k。
-- 🔍 **代码级断缝核验 (`seam_auditor`)**：自动对分片接缝处（前片尾部 80 字与后片头部 80 字）进行最长公共子串比对，确保**0 丢字、0 漏句、0 重复**。
-- 🔒 **章节脚注命名空间隔离 (`chapter_assembler`)**：将各切片内的局部 `[^1]`、`[^2]` 映射重构为带逻辑章节前缀的全局唯一键（如 `[^c01_1]`、`[^c02_1]`），并纠正全角标点符号与列表空行。
-- 📖 **古典纸书级排版美学 (`styles_book.css`)**：
-  - **篇章落版下沉大标题**：优雅居中的古典宋体（`Source Han Serif SC / Songti SC`），配有字距微排印与顶部呼吸留白；
-  - **中文出版级以楷代斜**：恪守中文严肃出版规范，强调与斜体文字（`*...*`、`<em>`、`<i>`、舞台动作指示）统一呈现为端正典雅的**楷体（KaiTi）**，坚决杜绝西文机械倾斜伪斜体造成的汉字笔划畸变；
-  - **副标题/署名发丝分割线**：作者/译者署名字体切换为典雅楷体，下方自动注入居中 40px 浅灰微细发丝线（Hairline Divider）；
-  - **引用块内严格对齐**：引用块文字顶格对齐（`text-indent: 0 !important;`），彻底解决传统排版中由于软换行导致的阶梯状凹陷错位；
-  - **原生双向气泡弹窗**：生成的 EPUB 3 在微信读书、Apple Books 等现代阅读器上实现**点击即弹出的气泡浮窗**，告别翻到书末找注释的折磨；
-  - **文体自适应支持**：专为话剧剧本对白（`<p.dialogue>`）、舞台动作指示（`<p.stage-direction>`）、无序号登场人物表以及学术引文定制样式。
+- **双轨处理流程**：根据文字层采样结果选择路径。对于包含完整文字层的文档，提取文本流后规整格式；对于图像扫描件，切片后交由视觉模型识别。
+- **分片并发识别**：按 10~15 页将文档切分为子文件，由独立子任务并行识别，控制单次任务的输入规模。
+- **接缝校验 (`seam_auditor`)**：比对相邻分片首尾文本的最长公共子串，排查重叠或缺字情况。
+- **章节脚注重编号 (`chapter_assembler`)**：为各分片内的脚注键添加章节前缀（如 `[^c01_1]`），避免跨章节标识冲突，并规范标点与列表排版。
+- **样式配置 (`styles_book.css`)**：
+  - **章节标题**：宋体居中排版，配置顶部间距；
+  - **楷体替代斜体**：斜体与强调标签（`*...*`、`<em>`、`<i>`、舞台说明）使用楷体正体排版，不使用倾斜样式；
+  - **作者署名**：楷体排版，下方配置细分隔线；
+  - **引用块**：首行不缩进，保持边距对齐；
+  - **注释属性**：添加 `epub:type="footnote"` 属性，使兼容阅读器能够调用浮层展示注释内容；
+  - **剧本样式**：为对话段落（`<p class="dialogue">`）及舞台说明（`<p class="stage-direction">`）提供专用样式规则。
 
 ---
 
-## 🚀 快速上手 (Quick Start)
+## 使用方法
 
 ### 1. 安装依赖
 
-需要 Python 3.10+ 以及系统环境中的 [Pandoc](https://pandoc.org/)：
+需要 Python 3.10+ 及 [Pandoc](https://pandoc.org/)：
 
 ```bash
-# 安装 Python 核心依赖
 pip install -r requirements.txt
 ```
 
@@ -97,9 +95,9 @@ pip install -r requirements.txt
 
 ---
 
-### 2. 环境体检 (`--doctor`)
+### 2. 依赖检查 (`--doctor`)
 
-运行自检命令，确认系统具备出版级电子书重构的全部能力：
+运行检查命令，验证相关依赖是否安装：
 
 ```bash
 python scripts/digitize_book.py --doctor
@@ -107,79 +105,75 @@ python scripts/digitize_book.py --doctor
 
 > **输出示例**：
 > ```
-> ==> 正在体检系统环境与出版级依赖库...
+> ==> 正在检查运行环境与依赖库...
 > [√] Python 环境: 3.12.4
-> [√] PDF 核心解析引擎 (PyMuPDF): 1.25.4
+> [√] PDF 解析引擎 (PyMuPDF): 1.25.4
 > [√] HTML/EPUB DOM 引擎 (BeautifulSoup4): 4.13.3
-> [√] 电子书出版编译器 (Pandoc): E:\Pandoc\pandoc.EXE
-> [√] 系统环境完全就绪，具备出版级数字化全部能力！
+> [√] 编译器 (Pandoc): E:\Pandoc\pandoc.EXE
+> [√] 运行环境已就绪。
 > ```
 
 ---
 
-### 3. 一键执行数字化流程
+### 3. 执行流程
 
-#### 模式 A：作为独立命令行工具 (CLI)
+#### 命令行使用方式 (CLI)
 
 ```bash
-# 步骤 1：开始数字化任务（自动提取 300 DPI 封面、检测文字层或进行微切片）
-python scripts/digitize_book.py "你的图书.pdf"
+# 步骤 1：处理 PDF 文件（提取封面、检测文字层或规划切片）
+python scripts/digitize_book.py "book.pdf"
 
-# 步骤 2：切片转写完成后，一键汇编、审计接缝并编译 EPUB
-python scripts/digitize_book.py --assemble "你的图书_output"
+# 步骤 2：识别完成后汇编并生成 EPUB
+python scripts/digitize_book.py --assemble "book_output"
 ```
-*如为剧本或包含大量对话，加上 `--drama` 参数即可启用戏剧级对白排版。*
+*包含戏剧对话时，可添加 `--drama` 参数应用对话样式规则。*
 
-#### 模式 B：与 AI 智能体配合（Antigravity / Claude Code / Obsidian AI）
+#### 配合 AI 智能体使用
 
-在配备了 AI Agent 的环境中，用户甚至不需要使用命令行：
-只需在聊天框输入：
-> **“帮我把这本 PDF 转成出版级 EPUB 和 Obsidian 笔记：`@[路径/书名.pdf]`”**
-
-Agent 将按照内置的 `SKILL.md` 标准 SOP 自动调用底层脚本切分、分发并发 `ocr_specialist` 转写、汇编并交付成果。
+在支持对应 Skill 的 AI 智能体中提供 PDF 文件路径，智能体将按照 `SKILL.md` 中定义的步骤调用脚本、分发分片识别并完成汇编。
 
 ---
 
-## 📂 项目目录结构
+## 目录结构
 
 ```
 pdf-book-ocr/
-├── README.md                 # 项目主文档（本文件）
-├── SKILL.md                  # AI 智能体 (Agent) 专属行为规约与 SOP
-├── LICENSE                   # MIT 开源许可证
+├── README.md                 # 项目文档
+├── SKILL.md                  # Agent 行为规约与执行流程
+├── LICENSE                   # MIT 许可证
 ├── requirements.txt          # Python 依赖清单
-├── .gitignore                # Git 忽略配置
+├── .gitignore                # Git 忽略规则
 ├── assets/
-│   └── styles_book.css       # 古典纸书排版 CSS（宋体落版、发丝线、气泡弹窗、暗色模式）
+│   └── styles_book.css       # 排版样式表（字体、间距、注释样式及暗色模式）
 ├── references/
-│   ├── prompt_templates.md   # 低 Token 视觉 OCR 提示词配方（散文、戏剧、学术）
-│   └── troubleshooting.md    # 核心排版踩坑指南（Pandoc 全局脚注、列表空行等）
+│   ├── prompt_templates.md   # 视觉识别提示词模板（散文、戏剧、学术）
+│   └── troubleshooting.md    # 格式问题说明（Pandoc 脚注冲突、列表缩进等）
 └── scripts/
-    ├── digitize_book.py      # 一键主控 CLI（含 --doctor, --assemble, 双轨探针）
-    ├── pdf_analyzer.py       # 本地预检、文字层质量采样、300 DPI 封面提取与切分规划
-    ├── pdf_slicer.py         # PyMuPDF 物理微切片切割器
-    ├── seam_auditor.py       # 切片断缝逐字质检与重复检测工具
-    ├── chapter_assembler.py  # 章节合并、脚注命名空间隔离与排版纠偏
-    └── epub_builder.py       # Pandoc EPUB 3 编译器与 XHTML DOM 后处理增强
+    ├── digitize_book.py      # 主控脚本（包含环境检查、输入检测与流程分发）
+    ├── pdf_analyzer.py       # 封面提取、文字层采样与分片规划
+    ├── pdf_slicer.py         # PDF 切片脚本
+    ├── seam_auditor.py       # 相邻分片文本接缝比对脚本
+    ├── chapter_assembler.py  # 章节合并与脚注前缀重映射脚本
+    └── epub_builder.py       # EPUB 3 编译与后处理脚本
 ```
 
 ---
 
-## 🛠️ 高级参数说明 (`digitize_book.py`)
+## 参数说明 (`digitize_book.py`)
 
 | 参数 | 说明 | 默认值 |
 | :--- | :--- | :---: |
-| `pdf` | 要数字化的 PDF 图书文件路径 | 必需 |
-| `--doctor` | 诊断环境依赖完整性，并给出缺失依赖的一键安装指令 | `False` |
-| `--assemble DIR` | 将指定工作目录下的切片 Markdown 汇编成最终 EPUB 与主笔记 | `None` |
-| `--drama` | 启用戏剧/剧本专用排版格式规约（台词加粗、舞台指示斜体、人物列表无点） | `False` |
-| `--title TITLE` | 自定义图书标题（默认自动清洗剔除网盘/Z-Lib等字符） | `自动提取` |
-| `--author AUTHOR` | 自定义作者/译者署名 | `自动提取` |
-| `--chunk-size N` | 扫描版分片每切片页数（推荐 10~15 页） | `15` |
-| `--force-scan` | 强制作为扫描版切分，即使存在文字层 | `False` |
+| `pdf` | 待处理的 PDF 文件路径 | 必需 |
+| `--doctor` | 检查环境依赖项是否完整 | `False` |
+| `--assemble DIR` | 将指定目录下的 Markdown 分片汇编为 EPUB 与整合笔记 | `None` |
+| `--drama` | 启用剧本对话样式（角色名加粗、说明文字使用楷体） | `False` |
+| `--title TITLE` | 指定图书标题（默认根据文件名推断） | 自动推断 |
+| `--author AUTHOR` | 指定作者名称 | 自动推断 |
+| `--chunk-size N` | 扫描版每个分片的页数 | `15` |
+| `--force-scan` | 忽略现有文字层，按图像切片处理 | `False` |
 
 ---
 
-## 📄 许可证
+## 许可证
 
-本项目采用 [MIT License](LICENSE) 开源。欢迎提 Issue、PR 或将本技能集成至你的 Obsidian、AI 知识库或数字出版工作流中。
+本项目采用 [MIT License](LICENSE) 授权。

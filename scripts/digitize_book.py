@@ -48,8 +48,8 @@ def log(msg, level='info'):
     print(f"{prefix} {msg}")
 
 def check_environment():
-    """产品级环境与依赖体检 (Doctor Mode)"""
-    log("正在体检系统环境与出版级依赖库...", 'step')
+    """运行环境与依赖检查 (Doctor Mode)"""
+    log("正在检查运行环境与依赖库...", 'step')
     all_ok = True
 
     # 1. Python 版本
@@ -59,9 +59,9 @@ def check_environment():
     # 2. PyMuPDF (fitz)
     try:
         import fitz
-        log(f"PDF 核心解析引擎 (PyMuPDF): {fitz.__version__}", 'ok')
+        log(f"PDF 解析引擎 (PyMuPDF): {fitz.__version__}", 'ok')
     except ImportError:
-        log("缺少 PyMuPDF 库！安装命令: pip install pymupdf", 'err')
+        log("缺少 PyMuPDF 库，安装命令: pip install pymupdf", 'err')
         all_ok = False
 
     # 3. BeautifulSoup4
@@ -69,7 +69,7 @@ def check_environment():
         import bs4
         log(f"HTML/EPUB DOM 引擎 (BeautifulSoup4): {bs4.__version__}", 'ok')
     except ImportError:
-        log("缺少 BeautifulSoup4 库！安装命令: pip install beautifulsoup4", 'err')
+        log("缺少 BeautifulSoup4 库，安装命令: pip install beautifulsoup4", 'err')
         all_ok = False
 
     # 4. Pandoc 可执行文件
@@ -80,18 +80,18 @@ def check_environment():
                 pandoc_path = c
                 break
     if pandoc_path:
-        log(f"电子书出版编译器 (Pandoc): {pandoc_path}", 'ok')
+        log(f"编译器 (Pandoc): {pandoc_path}", 'ok')
     else:
-        log("未检测到 Pandoc！", 'err')
-        log("  - Windows 一键安装: winget install JohnMacFarlane.Pandoc", 'warn')
-        log("  - macOS 一键安装:   brew install pandoc", 'warn')
-        log("  - 官方下载:         https://pandoc.org/installing.html", 'warn')
+        log("未检测到 Pandoc", 'err')
+        log("  - Windows: winget install JohnMacFarlane.Pandoc", 'warn')
+        log("  - macOS:   brew install pandoc", 'warn')
+        log("  - 官方下载: https://pandoc.org/installing.html", 'warn')
         all_ok = False
 
     if all_ok:
-        log("系统环境完全就绪，具备出版级数字化全部能力！\n", 'ok')
+        log("运行环境已就绪。\n", 'ok')
     else:
-        log("系统环境存在缺失，请按上方提示安装后重试。\n", 'warn')
+        log("运行环境存在缺失，请按提示安装后重试。\n", 'warn')
     return all_ok
 
 def clean_book_filename(filename):

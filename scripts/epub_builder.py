@@ -19,6 +19,7 @@ import shutil
 import zipfile
 import subprocess
 import argparse
+import datetime
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -44,7 +45,8 @@ def build_epub_and_master(
     translator=None,
     publisher=None,
     css_path=None,
-    front_matter_md=None
+    front_matter_md=None,
+    resource_path=None
 ):
     pandoc_exe = find_pandoc()
     print(f"[*] Found Pandoc: {pandoc_exe}")
@@ -63,7 +65,7 @@ def build_epub_and_master(
 title: {title}
 author: "{author}"
 {f'translator: "{translator}"' if translator else ''}
-date: {subprocess.check_output('date /t', shell=True, text=True).strip() if os.name == 'nt' else ''}
+date: {datetime.date.today().isoformat()}
 tags:
   - 来源/AIChat
   - 工具/Antigravity
@@ -108,6 +110,30 @@ tags:
     if css_path and os.path.exists(css_path):
         cmd.extend([f'--css={css_path}'])
 
+    # Resource search paths for images
+    res_dirs = []
+    if resource_path:
+        if isinstance(resource_path, (list, tuple)):
+            res_dirs.extend(resource_path)
+        else:
+            res_dirs.append(resource_path)
+
+    out_dir = os.path.dirname(os.path.abspath(out_epub))
+    res_dirs.append(out_dir)
+    res_dirs.append(os.path.join(out_dir, "images"))
+    if chapter_paths and os.path.exists(chapter_paths[0]):
+        ch_dir = os.path.dirname(os.path.abspath(chapter_paths[0]))
+        res_dirs.append(ch_dir)
+        res_dirs.append(os.path.join(ch_dir, "images"))
+
+    valid_res = []
+    for rd in res_dirs:
+        if os.path.exists(rd) and rd not in valid_res:
+            valid_res.append(rd)
+    if valid_res:
+        sep = ';' if os.name == 'nt' else ':'
+        cmd.extend([f'--resource-path={sep.join(valid_res)}'])
+
     cmd.extend(chapter_paths)
     
     print(f"[*] Invoking Pandoc to compile EPUB 3 ({len(chapter_paths)} chapters)...")
@@ -148,8 +174,10 @@ tags:
             def tag_author(m):
                 h1_html = m.group(1)
                 p_html = m.group(2)
+                if any(k in h1_html for k in ['目录', '扉页', '题记', '前言', '后记', '附录', '联系', '编辑']):
+                    return f'{h1_html}\n<p>{p_html}</p>'
                 clean_p = re.sub(r'<[^>]+>', '', p_html).strip()
-                if 0 < len(clean_p) <= 20 and not any(k in clean_p for k in ['。', '，', '、', '！', '？', '：', '；', '“', '”', '《']):
+                if 0 < len(clean_p) <= 20 and not any(k in clean_p for k in ['。', '，', '、', '！', '？', '：', '；', '“', '”', '《', '/']):
                     return f'{h1_html}\n<p class="chapter-author">{p_html}</p>'
                 return f'{h1_html}\n<p>{p_html}</p>'
 

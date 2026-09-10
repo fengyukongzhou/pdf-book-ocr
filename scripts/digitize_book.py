@@ -176,100 +176,184 @@ def run_pipeline(pdf_path, out_dir=None, chunk_size=15, title=None, author=None,
     is_digital, is_drama = detect_text_layer_and_genre(doc)
     log(f"体裁推断: {'戏剧/剧本' if is_drama else '散文/小说/专著'}")
     
-    if is_digital and not force_scan:
-        log("检测到原生可检索文字层 (Digital PDF)，启动【低 Token 文本提取 + 语义重构模式】！", 'step')
-        return extract_digital_book(doc, book_title, book_author, cover_path, out_dir, is_drama)
-    else:
-        log("检测为无文字层扫描版 (Scanned PDF)，启动【高保真切分与多模态 OCR 规划】！", 'step')
-        return plan_scanned_book(doc, pdf_path, book_title, book_author, cover_path, out_dir, chunk_size, is_drama)
+    if force_scan:
+        is_digital = False
+    return plan_book(doc, pdf_path, book_title, book_author, cover_path, out_dir, chunk_size, is_digital, is_drama)
 
-def extract_digital_book(doc, title, author, cover_path, out_dir, is_drama):
-    """文字版 PDF 本地文本提取（仍需轻量 Agent 做段落缝合与脚注绑定才能达到出版级）"""
-    total_pages = len(doc)
-    toc = doc.get_toc()
+def extract_digital_page_with_images(doc, pno, images_dir, min_size=80, global_pno=None):
+    """
+    Extracts text and embedded images from a digital PDF page.
+    Combines text blocks and get_image_info by Y-coordinate.
+    Uses paragraph-aware buffering: images are flushed only after natural paragraph ends
+    (terminal punctuation like 。！？！”… or .!?), never breaking sentences in half.
+    """
+    import fitz
+    page = doc[pno]
+    eff_pno = global_pno if global_pno is not None else pno
     
-    chapters = []
-    if toc:
-        log(f"提取到内置大纲目录 ({len(toc)} 篇目)，按真实章节切分...", 'ok')
-        # 依据书签分章
-        for idx in range(len(toc)):
-            lvl, name, start_p = toc[idx]
-            end_p = toc[idx+1][2] - 1 if idx + 1 < len(toc) else total_pages
-            start_p = max(0, start_p - 1)
-            end_p = min(total_pages, end_p)
-            
-            ch_text = []
-            for p in range(start_p, end_p):
-                ch_text.append(doc[p].get_text())
-            
-            clean_text = "\n\n".join(ch_text).strip()
-            ch_file = os.path.join(out_dir, f"{idx+1:02d}_{name}.md")
-            with open(ch_file, 'w', encoding='utf-8') as f:
-                f.write(f"# {name}\n\n" + clean_text + "\n")
-            chapters.append(ch_file)
-    else:
-        # 无书签时按 20 页分页打包为逻辑章节
-        log("未找到内置大纲，按自然段落聚合为篇章...", 'info')
-        ch_idx = 1
-        for start_p in range(0, total_pages, 20):
-            end_p = min(total_pages, start_p + 20)
-            ch_text = [doc[p].get_text() for p in range(start_p, end_p)]
-            name = f"第{ch_idx:02d}部分"
-            ch_file = os.path.join(out_dir, f"{ch_idx:02d}_{name}.md")
-            with open(ch_file, 'w', encoding='utf-8') as f:
-                f.write(f"# {name}\n\n" + "\n\n".join(ch_text) + "\n")
-            chapters.append(ch_file)
-            ch_idx += 1
-            
-    # 编译 EPUB
-    epub_path = os.path.join(out_dir, f"{title}.epub")
-    master_md = os.path.join(out_dir, f"{title}.md")
-    
-    from epub_builder import build_epub_and_master
-    build_epub_and_master(
-        title=title,
-        author=author,
-        chapter_paths=chapters,
-        cover_image=cover_path,
-        out_epub=epub_path,
-        out_master_md=master_md
-    )
-    
-    log(f"数字版文本提取完成！注意：原始文本仍需轻量 Agent 做段落缝合与脚注绑定才能达到出版级。", 'ok')
-    log(f"EPUB 电子书: {epub_path}", 'ok')
-    log(f"Obsidian 主笔记: {master_md}", 'ok')
-    return epub_path
+    # 1. Collect text blocks
+    raw_text_blocks = page.get_text("blocks")
+    items = []
+    for tb in raw_text_blocks:
+        text = tb[4].strip()
+        if text:
+            items.append({
+                "type": "text",
+                "y0": tb[1],
+                "x0": tb[0],
+                "content": text
+            })
 
-def plan_scanned_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_drama):
-    """扫描版图书全流程规划"""
+    # 2. Collect image blocks via get_image_info(xrefs=True)
+    img_counter = 1
+    try:
+        img_infos = page.get_image_info(xrefs=True)
+        for info in img_infos:
+            bbox = info.get('bbox')
+            if not bbox:
+                continue
+            x0, y0, x1, y1 = bbox
+            w = x1 - x0
+            h = y1 - y0
+            if w < min_size or h < min_size:
+                continue
+            ratio = max(w / max(1, h), h / max(1, w))
+            if ratio > 15:
+                continue
+                
+            img_fname = f"fig_p{eff_pno+1:03d}_{img_counter:02d}.png"
+            img_target = os.path.join(images_dir, img_fname)
+            
+            # Prefer extracting raw image via xref to preserve original lossless quality
+            xref = info.get('xref', 0)
+            saved = False
+            if xref > 0:
+                try:
+                    img_data = doc.extract_image(xref)
+                    if img_data and "image" in img_data:
+                        ext = img_data.get("ext", "png")
+                        if ext != "png":
+                            img_fname = f"fig_p{eff_pno+1:03d}_{img_counter:02d}.{ext}"
+                            img_target = os.path.join(images_dir, img_fname)
+                        with open(img_target, "wb") as f_img:
+                            f_img.write(img_data["image"])
+                        saved = True
+                except Exception:
+                    pass
+            if not saved:
+                try:
+                    mat = fitz.Matrix(300 / 72, 300 / 72)
+                    pix = page.get_pixmap(matrix=mat, clip=fitz.Rect(bbox), alpha=False)
+                    pix.save(img_target)
+                    saved = True
+                except Exception:
+                    pass
+
+            if saved:
+                items.append({
+                    "type": "image",
+                    "y0": y0,
+                    "x0": x0,
+                    "content": f"images/{img_fname}"
+                })
+                img_counter += 1
+    except Exception as e:
+        print(f"[-] Notice: error getting image info on page {pno+1}: {e}")
+
+    # 3. Sort text and images by physical Y-coordinate
+    items.sort(key=lambda it: (it["y0"], it["x0"]))
+
+    # 4. Paragraph-aware buffering
+    body_elements = []
+    pending_images = []
+
+    for it in items:
+        if it["type"] == "image":
+            pending_images.append(it["content"])
+        else:
+            text = it["content"]
+            body_elements.append(text)
+            # Flush pending images only after paragraph-ending punctuation
+            if text.endswith(('。', '！', '？', '”', '…', '.', '!', '?')) and pending_images:
+                for img_rel in pending_images:
+                    body_elements.append(f"\n\n![]({img_rel})\n\n")
+                pending_images.clear()
+
+    # Page end fallback: flush any remaining images
+    for img_rel in pending_images:
+        body_elements.append(f"\n\n![]({img_rel})\n\n")
+
+    return "\n\n".join(body_elements).strip()
+
+def plan_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_digital, is_drama):
+    """
+    统一图书切分与子任务规划 (Unified Slicing & Subagent Planning)
+    无论是数字文字版还是扫描版，均统一采用【物理切片 -> Subagent 语义清洗/转写 -> 汇编成书】的出版级流水线。
+    """
     from pdf_analyzer import analyze_pdf
     from pdf_slicer import slice_pdf
-    
-    # 1. 生成规划与切分
+    import fitz
+
+    log(f"启动统一切片与任务规划（{'数字文字版' if is_digital else '图像扫描版'}）...", 'step')
+
+    # 1. 生成规划与物理切分
     plan = analyze_pdf(pdf_path, out_dir=out_dir, chunk_size=chunk_size, cover_target=cover_path)
     parts_dir = slice_pdf(os.path.join(out_dir, "slice_plan.json"), out_dir=os.path.join(out_dir, "parts"))
-    
+
+    images_dir = os.path.join(out_dir, "images")
+    raw_md_dir = os.path.join(out_dir, "raw_md")
+    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(raw_md_dir, exist_ok=True)
+
     # 2. 生成子智能体一键派发清单 (jobs.json)
     jobs = []
     for p in plan['parts']:
-        jobs.append({
+        pdf_file_path = os.path.join(parts_dir, p['pdf_file'])
+        raw_txt_path = None
+
+        if is_digital:
+            raw_txt_file = p['md_file'].replace('.md', '.raw.txt')
+            raw_txt_path = os.path.join(parts_dir, raw_txt_file)
+
+            # 本地提取该切片内各页的文本与插图草稿
+            slice_doc = fitz.open(pdf_file_path)
+            slice_pages_text = []
+            for p_idx in range(len(slice_doc)):
+                global_pno = p['start_page'] + p_idx
+                page_text = extract_digital_page_with_images(slice_doc, p_idx, images_dir, global_pno=global_pno)
+                slice_pages_text.append(f"<!-- === Page {p_idx+1} (Global Page {global_pno+1}) === -->\n\n" + page_text)
+            slice_doc.close()
+
+            with open(raw_txt_path, 'w', encoding='utf-8') as f_raw:
+                f_raw.write("\n\n---\n\n".join(slice_pages_text) + "\n")
+
+        job_item = {
             "part_index": p['part_index'],
             "part_name": p['part_name'],
-            "pdf_path": os.path.join(parts_dir, p['pdf_file']),
-            "target_md": os.path.join(out_dir, "raw_md", p['md_file']),
+            "pdf_path": pdf_file_path,
+            "target_md": os.path.join(raw_md_dir, p['md_file']),
             "page_count": p['page_count'],
+            "is_digital": is_digital,
             "is_drama": is_drama
-        })
-        
+        }
+        if raw_txt_path:
+            job_item["raw_text_path"] = raw_txt_path
+
+        jobs.append(job_item)
+
     jobs_path = os.path.join(out_dir, "subagent_jobs.json")
-    os.makedirs(os.path.join(out_dir, "raw_md"), exist_ok=True)
     with open(jobs_path, 'w', encoding='utf-8') as f:
         json.dump(jobs, f, ensure_ascii=False, indent=2)
-        
-    log(f"已生成并发子智能体转写任务单: {jobs_path}", 'ok')
-    log(f"共生成 {len(jobs)} 个切片 PDF，各切片仅含 {chunk_size} 页，完全规避大上下文膨胀！", 'step')
-    log("【下一步操作】：请指示 Agent 使用 ocr_specialist 并发处理 raw_md，或执行 --assemble 汇编成书。")
+
+    log(f"已生成统一子智能体任务单: {jobs_path}", 'ok')
+    log(f"共规划 {len(jobs)} 个切片任务（每切片 {chunk_size} 页）。", 'step')
+    if is_digital:
+        log("【数字版专属增益】：已提取 raw.txt 与插图至 parts/，供 Agent 进行免视觉浪费的出版级语义清洗！", 'ok')
+    log("【下一步操作】：请指示 Agent 根据 subagent_jobs.json 派发处理 raw_md/，全部完成后执行 --assemble 汇编成书。")
     return jobs_path
+
+# 兼容别名
+plan_scanned_book = plan_book
 
 def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
     """
@@ -330,38 +414,131 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
     audit_seams(md_files, report_path=seam_report_path)
     log(f"接缝连续性审计完成，报告已生成: {seam_report_path}", 'ok')
 
-    # 2. 智能分组为逻辑章节
+    # 1.5 扫描并裁剪切片中的插图与图表 (300 DPI + 投影锁边)
+    from chapter_assembler import crop_figures_for_work_dir
+    cropped_count = crop_figures_for_work_dir(work_dir)
+    if cropped_count > 0:
+        log(f"正文插图锁边裁剪完成，共导出 {cropped_count} 张高清图片至 images/", 'ok')
+
+    # 2. 以 ## 标题为边界切割真实逻辑章节
     from chapter_assembler import assemble_chapter
     assembled_dir = os.path.join(work_dir, "assembled_chapters")
     os.makedirs(assembled_dir, exist_ok=True)
-    
-    chapter_groups = {}
+
+    # 2a. 将所有切片顺序拼合为一个完整文本流，智能平滑缝合跨分片断句
+    all_lines = []
+    terminal_punct = '。！？！”…；:：）】》」』'
+    block_prefixes = ('#', '!', '<', '>', '-', '*', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
+
     for mf in md_files:
-        bname = os.path.splitext(os.path.basename(mf))[0]
-        # 匹配模式如 01_章节名_p1 或 part_01
-        m = re.match(r'^(?:part_)?(\d+)(?:_([^_]+))?(?:_p\d+)?$', bname)
-        if m:
-            ch_num = int(m.group(1))
-            ch_name = m.group(2) or f"第{ch_num:02d}章"
-            group_key = (ch_num, ch_name)
+        with open(mf, 'r', encoding='utf-8') as f:
+            chunk_lines = f.readlines()
+        if not chunk_lines:
+            continue
+
+        if all_lines:
+            # 找到前一切片的最后一个非空行索引
+            last_idx = len(all_lines) - 1
+            while last_idx >= 0 and not all_lines[last_idx].strip():
+                last_idx -= 1
+
+            # 找到当前切片的第一个非空行索引
+            first_idx = 0
+            while first_idx < len(chunk_lines) and not chunk_lines[first_idx].strip():
+                first_idx += 1
+
+            if last_idx >= 0 and first_idx < len(chunk_lines):
+                prev_line = all_lines[last_idx].rstrip('\r\n')
+                next_line = chunk_lines[first_idx].lstrip()
+                prev_stripped = prev_line.strip()
+
+                # 判断前一行末尾是否为未完结断句，且后一行非排版块元素
+                if (prev_stripped and prev_stripped[-1] not in terminal_punct 
+                        and not prev_stripped.startswith(block_prefixes)
+                        and not next_line.startswith(block_prefixes)):
+                    # 缝合跨页跨分片断句：直接衔接同一自然段
+                    all_lines[last_idx] = prev_line + next_line
+                    chunk_lines = chunk_lines[first_idx + 1:]
+                else:
+                    # 属于独立段落，确保留一个空行分隔
+                    if all_lines and all_lines[-1].strip():
+                        all_lines.append('\n')
+                    chunk_lines = chunk_lines[first_idx:]
+
+        all_lines.extend(chunk_lines)
+
+    # 2b. 按 ## 标题边界切割章节
+    # 收集 (标题, [行列表]) 的列表
+    chapters_raw = []       # list of (title_str, [lines])
+    preamble_lines = []     # 第一个 ## 之前的内容（前置页）
+    found_first_h2 = False
+    current_title = None
+    current_lines = []
+
+    for line in all_lines:
+        if line.startswith('## '):
+            if not found_first_h2:
+                # 遇到第一个 ## 标题，将之前内容存为前置
+                found_first_h2 = True
+                if preamble_lines:
+                    chapters_raw.insert(0, ('前置信息', preamble_lines))
+            else:
+                # 保存上一章
+                if current_title is not None:
+                    chapters_raw.append((current_title, current_lines))
+            # 开始新章节（标题文本去掉 ## 前缀及换行）
+            current_title = line[3:].strip()
+            current_lines = [line]
         else:
-            group_key = (len(chapter_groups) + 1, bname)
-        chapter_groups.setdefault(group_key, []).append(mf)
-        
+            if not found_first_h2:
+                preamble_lines.append(line)
+            else:
+                current_lines.append(line)
+
+    # 收尾最后一章
+    if current_title is not None and current_lines:
+        chapters_raw.append((current_title, current_lines))
+    elif not found_first_h2 and preamble_lines:
+        # 全文没有任何 ## 标题，作为单章处理
+        chapters_raw.append((book_title, preamble_lines))
+
+    # 过滤文前文后的纯版权与推广章节
+    filtered_chapters = []
+    copyright_keywords = ('版权信息', '版权声明', '版权页', '出版信息', '图书在版编目', '出版说明')
+    for t, lines in chapters_raw:
+        clean_t = t.strip()
+        if any(kw in clean_t for kw in copyright_keywords):
+            log(f"  [跳过版权信息章节]: {clean_t}", 'ok')
+            continue
+        filtered_chapters.append((t, lines))
+    chapters_raw = filtered_chapters
+
+    log(f"识别到 {len(chapters_raw)} 个有效逻辑章节（已自动过滤版权信息）", 'ok')
+
+    # 2c. 为每个章节写临时 Markdown 文件并调用 assemble_chapter
     assembled_chapters = []
-    ch_counter = 1
-    for (ch_num, ch_name), sources in sorted(chapter_groups.items(), key=lambda x: x[0][0]):
+    for ch_counter, (ch_name, ch_lines) in enumerate(chapters_raw, start=1):
         ch_id = f"c{ch_counter:02d}"
-        out_chapter_md = os.path.join(assembled_dir, f"{ch_counter:02d}_{ch_name}.md")
+        # 对文件名中不合法字符进行清洗
+        safe_name = re.sub(r'[\\/:*?"<>|]', '_', ch_name)[:60]
+        out_chapter_md = os.path.join(assembled_dir, f"{ch_counter:02d}_{safe_name}.md")
+        # 写入临时切片（assemble_chapter 会负责脚注隔离 & 排版归一化）
+        tmp_src = out_chapter_md + ".tmp.md"
+        with open(tmp_src, 'w', encoding='utf-8') as f:
+            f.writelines(ch_lines)
         assemble_chapter(
             chapter_id=ch_id,
             title=ch_name,
-            source_md_paths=sources,
+            source_md_paths=[tmp_src],
             out_path=out_chapter_md,
             is_drama=drama
         )
+        try:
+            os.remove(tmp_src)
+        except Exception:
+            pass
         assembled_chapters.append(out_chapter_md)
-        ch_counter += 1
+        log(f"  [{ch_counter:02d}] {ch_name[:40]} → {os.path.basename(out_chapter_md)}", 'ok')
 
     log(f"成功汇编 {len(assembled_chapters)} 个逻辑章节，脚注已完成命名空间隔离！", 'ok')
 
@@ -376,7 +553,8 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
         chapter_paths=assembled_chapters,
         cover_image=cover_path,
         out_epub=out_epub,
-        out_master_md=out_master_md
+        out_master_md=out_master_md,
+        resource_path=work_dir
     )
     
     log("=" * 55, 'step')

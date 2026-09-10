@@ -253,3 +253,23 @@ img {
   display: block;
   margin: 1.5em auto;
 }
+
+figure {
+  margin: 1.8em 0;
+  text-align: center;
+  page-break-inside: avoid;
+}
+
+figcaption {
+  font-size: 0.85em;
+  color: #718096;
+  margin-top: 0.6em;
+  text-align: center;
+  font-family: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  figcaption {
+    color: #a0aec0;
+  }
+}

@@ -90,7 +90,7 @@ python scripts/digitize_book.py "book.pdf"
 
 ### 步骤 2：清洗或转写分片
 
-根据 `references/prompt_templates.md` 的路由指引，调用 `references/prompts/` 中对应的原子模具处理各分片，将生成的 Markdown 写入 `raw_md/` 目录。
+根据 `references/prompt_templates.md` 的路由指引，调用 `references/prompts/` 中对应的原子模具处理各分片，将生成的 Markdown 写入 `raw_md/` 目录。分片较多时（>4 个），建议以 3~4 个分片为一组滚动派发，避免单次瞬时请求过大。
 
 ### 步骤 3：汇编成书
 

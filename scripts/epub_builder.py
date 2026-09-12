@@ -99,7 +99,8 @@ tags:
         '--metadata', 'language=zh-CN',
         '--toc',
         '--toc-depth=1',
-        '--split-level=1'
+        '--split-level=1',
+        '--epub-title-page=false'
     ]
     if translator:
         cmd.extend(['--metadata', f'translator={translator}'])

@@ -519,9 +519,11 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
     for line in all_lines:
         if line.startswith('## '):
             if not found_first_h2:
-                # 遇到第一个 ## 标题，将之前内容存为前置
+                # 遇到第一个 ## 标题，仅当之前存在实质性文本（如长篇题记/序言）才保留前置页
                 found_first_h2 = True
-                if preamble_lines:
+                preamble_text = "".join(preamble_lines).strip()
+                substantive_text = re.sub(r'#+.*|\s+|[-*_=~`]', '', preamble_text)
+                if len(substantive_text) > 40:
                     chapters_raw.insert(0, ('前置信息', preamble_lines))
             else:
                 # 保存上一章

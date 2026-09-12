@@ -22,8 +22,23 @@ import argparse
 sys.stdout.reconfigure(encoding='utf-8')
 
 # 终结标点符号集
-TERMINAL_PUNCT = '。！？！”…；:：）】》」』'
+TRUE_TERMINAL_PUNCT = '。！？…；:：'
+CLOSING_BRACKETS = '”’）】》」』'
 BLOCK_PREFIXES = ('#', '!', '<', '>', '-', '*', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
+
+def is_line_terminated(line):
+    """判断行末是否为真正的句子终结标点"""
+    if not line:
+        return False
+    last = line[-1]
+    if last in TRUE_TERMINAL_PUNCT:
+        return True
+    if last in CLOSING_BRACKETS:
+        # 如果末尾是闭合括号/引号，检查闭合符之前是否有真终结符（如：“……。”）
+        if len(line) >= 2 and line[-2] in TRUE_TERMINAL_PUNCT:
+            return True
+        return False
+    return False
 
 def extract_edge_lines(md_path, max_lines=5):
     """提取 Markdown 切片的首尾非空、非注释正文行"""
@@ -77,7 +92,7 @@ def analyze_junction(prev_file, next_file):
 
     is_prev_block = tail_line.startswith(BLOCK_PREFIXES)
     is_next_block = head_line.startswith(BLOCK_PREFIXES)
-    has_terminal_punct = bool(tail_line and tail_line[-1] in TERMINAL_PUNCT)
+    has_terminal_punct = is_line_terminated(tail_line)
 
     # 3. 智能决策仲裁
     action = "SPLIT"

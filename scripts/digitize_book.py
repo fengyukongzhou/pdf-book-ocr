@@ -375,7 +375,7 @@ def plan_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_
 # 兼容别名
 plan_scanned_book = plan_book
 
-def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
+def assemble_scanned_book(work_dir, title=None, author=None, drama=False, preview_toc=False):
     """
     汇编切片与出版级成书 (Assemble Mode)
     1. 自动定位 slice_plan.json 或扫描 raw_md 目录
@@ -429,7 +429,7 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
     log(f"发现 {len(md_files)} 个转写切片 Markdown 文件", 'ok')
 
     # 1. 运行断缝核验
-    from seam_auditor import audit_seams
+    from seam_auditor import audit_seams, is_line_terminated
     seam_report_path = os.path.join(work_dir, "seam_report.md")
     seam_findings = audit_seams(md_files, report_path=seam_report_path)
     log(f"接缝连续性审计完成，报告已生成: {seam_report_path}", 'ok')
@@ -447,7 +447,6 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
 
     # 2a. 将所有切片顺序拼合为一个完整文本流，智能平滑缝合跨分片断句
     all_lines = []
-    terminal_punct = '。！？！”…；:：）】》」』'
     block_prefixes = ('#', '!', '<', '>', '-', '*', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
     seam_actions = {f"{os.path.basename(item['prev_file'])} -> {os.path.basename(item['next_file'])}": item for item in seam_findings}
     prev_mf = None
@@ -481,7 +480,7 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
 
                 if action is None:
                     # 保底规则：前行末尾非终结标点且双方非排版块元素
-                    if (prev_stripped and prev_stripped[-1] not in terminal_punct 
+                    if (prev_stripped and not is_line_terminated(prev_stripped)
                             and not prev_stripped.startswith(block_prefixes)
                             and not next_line.startswith(block_prefixes)):
                         action = "MERGE"
@@ -557,8 +556,30 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
     chapters_raw = filtered_chapters
 
     log(f"识别到 {len(chapters_raw)} 个有效逻辑章节（已自动过滤版权信息）", 'ok')
+    toc_manifest = []
+    for idx, (t, lines) in enumerate(chapters_raw, start=1):
+        char_count = sum(len(l) for l in lines)
+        is_short = char_count < 1500
+        is_single_word = bool(re.match(r'^[A-Za-z0-9_\-–—]+$', t.strip()))
+        warn_flag = " [⚠️ 疑似微小节/短章]" if (is_short and is_single_word) else ""
+        log(f"  [{idx:02d}] {t[:40]} ({char_count:,} 字符){warn_flag}", 'step')
+        toc_manifest.append({
+            "index": idx,
+            "title": t,
+            "char_count": char_count,
+            "warning": bool(warn_flag)
+        })
 
-    # 2c. 为每个章节写临时 Markdown 文件并调用 assemble_chapter
+    toc_manifest_path = os.path.join(work_dir, "toc_manifest.json")
+    with open(toc_manifest_path, 'w', encoding='utf-8') as f_toc:
+        json.dump(toc_manifest, f_toc, ensure_ascii=False, indent=2)
+
+    if preview_toc:
+        log("=" * 55, 'step')
+        log(f"【章节目录树预览完毕】共 {len(chapters_raw)} 章，清单已保存至: {toc_manifest_path}", 'ok')
+        log("请主 Agent 检查章节结构与篇幅体量，确认无异常后再执行完整汇编。", 'step')
+        log("=" * 55, 'step')
+        return None, None
     assembled_chapters = []
     for ch_counter, (ch_name, ch_lines) in enumerate(chapters_raw, start=1):
         ch_id = f"c{ch_counter:02d}"
@@ -616,6 +637,7 @@ def main():
     parser.add_argument("pdf", nargs="?", help="要数字化的 PDF 图书文件路径")
     parser.add_argument("--doctor", action="store_true", help="诊断系统环境与依赖完整性")
     parser.add_argument("--assemble", metavar="DIR", help="将指定工作目录下的切片 Markdown 汇编成最终 EPUB 与主笔记")
+    parser.add_argument("--preview-toc", metavar="DIR", help="仅预览指定工作目录下的章节划分与字数（TOC 审计门禁），不生成最终 EPUB")
     parser.add_argument("--drama", action="store_true", help="启用戏剧/剧本专用排版格式规约")
     parser.add_argument("--title", default=None, help="自定义图书标题（默认自动清洗）")
     parser.add_argument("--author", default=None, help="自定义作者/译者署名")
@@ -653,12 +675,23 @@ def main():
         extract_tight_vector_figures(target_pdf, out_imgs)
         return
 
+    if args.preview_toc:
+        assemble_scanned_book(
+            work_dir=args.preview_toc,
+            title=args.title,
+            author=args.author,
+            drama=args.drama,
+            preview_toc=True
+        )
+        return
+
     if args.assemble:
         assemble_scanned_book(
             work_dir=args.assemble,
             title=args.title,
             author=args.author,
-            drama=args.drama
+            drama=args.drama,
+            preview_toc=False
         )
         return
 

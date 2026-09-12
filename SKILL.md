@@ -14,16 +14,17 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
 ```
 [原始 PDF 图书 (扫描版或数字文字版)]
        │
-       ▼ (Step 1: 预处理与切片规划)
- digitize_book.py ──> 提取封面、切片为 10~15 页微型 PDF、生成 subagent_jobs.json
+       ▼ (Step 1: 预处理、切片规划与全局目录提取)
+ digitize_book.py ──> 提取封面、切片为 10~15 页微型 PDF、提取《全书大章白名单》
        │              (数字版附带 raw.txt 纯文本草稿，扫描版提供微型 PDF)
        ▼
-[Step 2: Subagent 并发转写/清洗] ──> 逐分片落盘至 raw_md/*.md
+[Step 2: Subagent 批次滚动转写/清洗] ──> 注入大章白名单约束，防小节升格，逐片落盘 raw_md/*.md
        │
-       ▼ (Step 3: 语义汇编与编译成书)
- digitize_book.py --assemble
+       ▼ (Step 3: 语义汇编与目录审查门禁)
+ digitize_book.py --preview-toc / --assemble
        ├── seam_auditor: 校验首尾断缝与段落连续性
-       ├── chapter_assembler: 按内文 ## 真实标题聚合章节、隔离脚注命名空间
+       ├── toc_manifest: 主 Agent 审查章节拟案（TOC Review Gate），剔除碎片短章
+       ├── chapter_assembler: 按真实 ## 大章标题聚合章节、隔离脚注命名空间
        └── epub_builder: Pandoc 编译 EPUB 3 + 注入双向弹框注释
        │
        ▼ (Step 4: 出厂验收)
@@ -36,16 +37,18 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
 
 当用户提出 PDF 转电子书或 OCR 请求时，严格按以下步骤与**验收门禁（Completion Gates）**执行：
 
-### Step 1: 环境检查与切片规划
+### Step 1: 环境检查、切片规划与目录白名单提取
 1. 运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --doctor`，确认依赖正常。
 2. 运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py "<PDF路径>"`。
    - 脚本自动提取封面、配图并生成 10~15 页物理切片，建立 `subagent_jobs.json`。
    - **数字文字版**：自动扫描图题并提取矢量信息图（300 DPI 紧致锁边、严防吞字）至 `images/`，并提供带配图标记的 `parts/*.raw.txt` 供纯文本低 Token 清洗；
    - **扫描版**：自动提供纯微型 PDF 供视觉多模态转写。
-- **Gate 1 验收门禁**：检查 `subagent_jobs.json` 已生成，分片任务清单条目数 > 0。
+3. **全局目录提取（Global TOC Whitelist）**：切片完成后，主 Agent 使用 `view_file` 审阅第 1~2 个切片（通常含目录、卷首说明或编者按），提炼出本书的《全书大章白名单》（例如 `['伸伸脚', '十封信', '幸运的错误', ...]`）。若全书无显式目录（如纯长篇连续小说），记录“无显式目录，依大章通则转写”。
+- **Gate 1 验收门禁**：检查 `subagent_jobs.json` 已生成（条目数 > 0），且已提炼出《全书大章白名单》（或确认无显式目录）。
 
 ### Step 2: 分发分片并发清洗/转写
 读取 `subagent_jobs.json`，根据体裁从 `references/prompts/` 读取对应原子提示词模具（数字版选 `digital.txt`，散文小说选 `prose.txt`，戏剧选 `drama.txt`，学术专著选 `academic.txt`；路由索引参见 [references/prompt_templates.md](references/prompt_templates.md)），使用 `invoke_subagent` 派发任务：
+- **前置大章白名单注入**：派发 Prompt 时，必须将 Gate 1 提炼的《全书大章白名单》注入提示词，明确约束：仅白名单内篇目可标为二级标题 `##`；切片内的所有小节、英文单词/编号、场景名副标题一律降维使用三级标题 `###`，严防子智能体因局部视界盲区将小节错标为大章。
 - **批次滚动派发（Rolling Batching）**：分片总数 > 4 时，**强制以 3~4 个分片为一组滚动派发**。当前批次分片全部完成并落盘后，再拉起下一批，严禁一次性全量并发冲击 API 限流（429）。
 - **极简中继与静默推进（Silent Relaying）**：批次推进期间，父 Agent **严禁对每个分片进行篇目罗列、剧情概要或细节长篇汇报**（严重膨胀对话历史上下文）。批次转换时仅允许输出单行紧凑状态（如 `批次 [01~04/24] 完成，推进批次 [05~08]`）。子 Agent 之间同样执行单行状态汇报。
 - **多模态全流程履约铁律（Anti-Downgrade Redline）**：扫描版必须完整执行视觉子 Agent 转写，以确保版式拓扑理解、跨页自然断句缝合与插图定位品质。严禁以节省 Token 或速度为由擅自切换为纯本地机械 OCR；若遇长篇任务，唯一合规路径为批次滚动推进。任何技术管道变更必须事先向用户明确请示并获得授权。
@@ -56,16 +59,19 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
 - **版权信息剔除**：文前与文后的版权页、出版声明、CIP 编目、公众号/二维码推广等信息直接丢弃，不保留进正文。
 - **Gate 2 验收门禁**：检查 `raw_md/` 下文件数量**必须 100% 等于分片总数**，且每个文件大小 > 100 字节。未全部就绪前严禁执行组装！
 
-### Step 3: 一键语义汇编成书
-所有切片完成且门禁通过后，运行：
-```bash
-python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --assemble "<输出工作目录>"
-```
-流水线自动执行三重汇编：
-1. **接缝连续性审计与焊接 (`seam_auditor`)**：自动诊断相邻切片接口首尾对，执行跨切片引号闭环焊接（`MERGE` 对白）、未完结断句缝合（`MERGE`）与文本重叠剔除（`MERGE_DEDUP`），并生成 `seam_report.md`。
-2. **逻辑章节聚合 (`chapter_assembler`)**：依接缝仲裁平滑拼接连续文本流，按正文真实 `## 章节标题` 动态切分章节，隔离各章脚注命名空间。
-3. **出版级编译 (`epub_builder`)**：Pandoc 编译 EPUB 3，注入双向弹框注释与排版样式。
-- **Gate 3 验收门禁**：确认生成 `seam_report.md`（接口仲裁表无异常阻断）、`assembled_chapters/`（按书本真实章节命名）、全书主 Markdown 笔记与 `.epub` 文件。
+### Step 3: 目录审查门禁与一键语义汇编
+所有切片完成且 Gate 2 通过后：
+1. **目录拟案快速预检（TOC Preview Gate）**：
+   可运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --preview-toc "<输出工作目录>"`。
+   流水线输出拟定章节清单并保存 `toc_manifest.json`，标记潜在异常（如 `<1500` 字的孤立英文单词/编号章节）。
+   - **主 Agent 审查责任**：对照 Gate 1 的大章白名单核对章节结构。若发现小节未降级（如某文章下的英文单词小节被割裂），主 Agent 在 `raw_md/*.md` 中执行批量平推降级（`##` $\to$ `###`），确保章节数量与原书篇目真实对应。
+2. **完整组装与编译成书**：
+   运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --assemble "<输出工作目录>"`。
+   流水线自动执行三重汇编：
+   - **接缝连续性审计与焊接 (`seam_auditor`)**：自动诊断相邻切片接口首尾对，执行跨切片引号闭环焊接（`MERGE` 对白）、未完结断句缝合（`MERGE`）与文本重叠剔除（`MERGE_DEDUP`），并生成 `seam_report.md`。
+   - **逻辑章节聚合 (`chapter_assembler`)**：依接缝仲裁平滑拼接连续文本流，按正文真实 `## 章节标题` 动态切分章节，隔离各章脚注命名空间。
+   - **出版级编译 (`epub_builder`)**：Pandoc 编译 EPUB 3，注入双向弹框注释与排版样式。
+- **Gate 3 验收门禁**：确认生成 `seam_report.md`（无断句缝隙）、`toc_manifest.json` 与 `assembled_chapters/`（章节名 100% 对应原书大章，无碎片微短章）、全书主 Markdown 笔记与 `.epub` 文件。
 
 ### Step 4: 出版级闭环验收
 交付给用户前，执行快速自检：

@@ -21,4 +21,5 @@
 
 1. **按需单取**：判断体裁后，仅调用 `view_file` 读取对应的 `references/prompts/<branch>.txt` 获取提示词。
 2. **变量注入**：将读取到的模具中的 `{slice_pdf_path}`、`{raw_text_path}`、`{out_slice_md_path}` 等占位符替换为 `subagent_jobs.json` 对应分片的物理路径。
-3. **并发派发**：使用 `invoke_subagent` 派发子任务，子 Agent 将结果直接落盘至 `raw_md/*.md`，实现 0 跨分支干扰与极限 Token 节约。
+3. **白名单注入**：若在 Gate 1 提取到《全书大章白名单》，在 Prompt 末尾追加白名单清单（如 `【全书大章白名单】：[...]`），强约束二级标题 `##` 准入边界。
+4. **并发派发**：使用 `invoke_subagent` 派发子任务，子 Agent 将结果直接落盘至 `raw_md/*.md`，实现 0 跨分支干扰与极限 Token 节约。

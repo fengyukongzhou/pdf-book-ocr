@@ -307,6 +307,18 @@ def plan_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_
 
     # 2. 生成子智能体一键派发清单 (jobs.json)
     jobs = []
+    vector_figs_by_pno = {}
+    if is_digital:
+        try:
+            from vector_figure_extractor import extract_tight_vector_figures
+            vector_figs = extract_tight_vector_figures(pdf_path, images_dir)
+            if vector_figs:
+                log(f"已自动提取 {len(vector_figs)} 个矢量信息图/图表至 images/（300 DPI 紧致锁边）", 'ok')
+                for fnum, finfo in vector_figs.items():
+                    vector_figs_by_pno.setdefault(finfo['pno'], []).append(finfo)
+        except Exception as e:
+            log(f"矢量图表自动提取提示: {e}", 'warn')
+
     for p in plan['parts']:
         pdf_file_path = os.path.join(parts_dir, p['pdf_file'])
         raw_txt_path = None
@@ -321,6 +333,14 @@ def plan_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_
             for p_idx in range(len(slice_doc)):
                 global_pno = p['start_page'] + p_idx
                 page_text = extract_digital_page_with_images(slice_doc, p_idx, images_dir, global_pno=global_pno)
+
+                # 若当前页包含自动提取的紧致矢量图表，追加标准图片引用
+                if global_pno in vector_figs_by_pno:
+                    for vf in vector_figs_by_pno[global_pno]:
+                        fig_tag = f"\n\n![{vf['title']}]({vf['image_rel_path']})\n\n"
+                        if vf['image_rel_path'] not in page_text:
+                            page_text += fig_tag
+
                 slice_pages_text.append(f"<!-- === Page {p_idx+1} (Global Page {global_pno+1}) === -->\n\n" + page_text)
             slice_doc.close()
 
@@ -411,7 +431,7 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
     # 1. 运行断缝核验
     from seam_auditor import audit_seams
     seam_report_path = os.path.join(work_dir, "seam_report.md")
-    audit_seams(md_files, report_path=seam_report_path)
+    seam_findings = audit_seams(md_files, report_path=seam_report_path)
     log(f"接缝连续性审计完成，报告已生成: {seam_report_path}", 'ok')
 
     # 1.5 扫描并裁剪切片中的插图与图表 (300 DPI + 投影锁边)
@@ -429,6 +449,8 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
     all_lines = []
     terminal_punct = '。！？！”…；:：）】》」』'
     block_prefixes = ('#', '!', '<', '>', '-', '*', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
+    seam_actions = {f"{os.path.basename(item['prev_file'])} -> {os.path.basename(item['next_file'])}": item for item in seam_findings}
+    prev_mf = None
 
     for mf in md_files:
         with open(mf, 'r', encoding='utf-8') as f:
@@ -436,7 +458,7 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
         if not chunk_lines:
             continue
 
-        if all_lines:
+        if all_lines and prev_mf:
             # 找到前一切片的最后一个非空行索引
             last_idx = len(all_lines) - 1
             while last_idx >= 0 and not all_lines[last_idx].strip():
@@ -452,11 +474,29 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
                 next_line = chunk_lines[first_idx].lstrip()
                 prev_stripped = prev_line.strip()
 
-                # 判断前一行末尾是否为未完结断句，且后一行非排版块元素
-                if (prev_stripped and prev_stripped[-1] not in terminal_punct 
-                        and not prev_stripped.startswith(block_prefixes)
-                        and not next_line.startswith(block_prefixes)):
-                    # 缝合跨页跨分片断句：直接衔接同一自然段
+                # 获取接缝审计裁决
+                junction_key = f"{os.path.basename(prev_mf)} -> {os.path.basename(mf)}"
+                decision = seam_actions.get(junction_key)
+                action = decision["action"] if decision else None
+
+                if action is None:
+                    # 保底规则：前行末尾非终结标点且双方非排版块元素
+                    if (prev_stripped and prev_stripped[-1] not in terminal_punct 
+                            and not prev_stripped.startswith(block_prefixes)
+                            and not next_line.startswith(block_prefixes)):
+                        action = "MERGE"
+                    else:
+                        action = "SPLIT"
+
+                if action == "MERGE_DEDUP" and decision and decision.get("overlap"):
+                    # 消除接缝处的文本重叠
+                    overlap = decision["overlap"]
+                    if next_line.startswith(overlap):
+                        next_line = next_line[len(overlap):].lstrip()
+                    all_lines[last_idx] = prev_line + next_line
+                    chunk_lines = chunk_lines[first_idx + 1:]
+                elif action == "MERGE":
+                    # 缝合跨页跨分片断句/未闭合对白：直接衔接同一自然段
                     all_lines[last_idx] = prev_line + next_line
                     chunk_lines = chunk_lines[first_idx + 1:]
                 else:
@@ -466,6 +506,7 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False):
                     chunk_lines = chunk_lines[first_idx:]
 
         all_lines.extend(chunk_lines)
+        prev_mf = mf
 
     # 2b. 按 ## 标题边界切割章节
     # 收集 (标题, [行列表]) 的列表
@@ -579,11 +620,19 @@ def main():
     parser.add_argument("--out-dir", default=None, help="成果输出目录")
     parser.add_argument("--chunk-size", type=int, default=15, help="扫描分片每切片页数 (默认 15 页)")
     parser.add_argument("--force-scan", action="store_true", help="强制作为扫描版切分，即使存在文字层")
+    parser.add_argument("--extract-figures", metavar="PDF", help="直接从数字 PDF 中提取 300 DPI 紧致矢量图表至指定目录")
     
     args = parser.parse_args()
     
     if args.doctor:
         check_environment()
+        return
+
+    if args.extract_figures:
+        from vector_figure_extractor import extract_tight_vector_figures
+        target_pdf = os.path.abspath(args.extract_figures)
+        out_imgs = args.out_dir or os.path.join(os.path.dirname(target_pdf), "images")
+        extract_tight_vector_figures(target_pdf, out_imgs)
         return
 
     if args.assemble:
@@ -601,6 +650,7 @@ def main():
         print("  1. 环境诊断:     python digitize_book.py --doctor")
         print('  2. 一键数字化:   python digitize_book.py "百年孤独.pdf"')
         print('  3. 汇编切片成书: python digitize_book.py --assemble "百年孤独_work" --drama')
+        print('  4. 提取矢量图表: python digitize_book.py --extract-figures "研报.pdf"')
         return
 
     run_pipeline(

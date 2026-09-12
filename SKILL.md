@@ -40,14 +40,15 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
 1. 运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --doctor`，确认依赖正常。
 2. 运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py "<PDF路径>"`。
    - 脚本自动提取封面、配图并生成 10~15 页物理切片，建立 `subagent_jobs.json`。
-   - **数字文字版**：自动提供 `parts/*.raw.txt` 供纯文本低 Token 清洗；
+   - **数字文字版**：自动扫描图题并提取矢量信息图（300 DPI 紧致锁边、严防吞字）至 `images/`，并提供带配图标记的 `parts/*.raw.txt` 供纯文本低 Token 清洗；
    - **扫描版**：自动提供纯微型 PDF 供视觉多模态转写。
 - **Gate 1 验收门禁**：检查 `subagent_jobs.json` 已生成，分片任务清单条目数 > 0。
 
 ### Step 2: 分发分片并发清洗/转写
-读取 `subagent_jobs.json`，根据 `references/prompt_templates.md`（数字版选模板 0，扫描版选模板 1~3）使用 `invoke_subagent` 并发派发任务：
+读取 `subagent_jobs.json`，根据体裁从 `references/prompts/` 读取对应原子提示词模具（数字版选 `digital.txt`，散文小说选 `prose.txt`，戏剧选 `drama.txt`，学术专著选 `academic.txt`；路由索引参见 [references/prompt_templates.md](references/prompt_templates.md)），使用 `invoke_subagent` 并发派发任务：
 - **目标路径**：所有子任务必须直接落盘写入 `raw_md/{md_file}`。
 - **配图规范**：无图题的插图 alt 文本保持为空 `![](images/...)`，禁止添加多余“插图”二字；仅原书印有图题时才写 `![图题](images/...)`。
+- **非线性图表切图铁律**：严禁将饼图、柱状图、走势图或横向多列表格强行转写为 Markdown 表格或未渲染的 Mermaid 代码（移动端与离线 EPUB 必崩）；数字版已由脚本自动生成 300 DPI 紧凑锁边图（保留 `![图题](images/fig_XX.png)` 即可），扫描版统一使用 `<!-- FIGURE: page=... bbox=[...] -->` 标定。
 - **随文注忠实保留**：正文中的括号随文注/夹注（如“（注：……”）必须原样保留在正文中，禁止转为 `[^n]` 脚注。
 - **版权信息剔除**：文前与文后的版权页、出版声明、CIP 编目、公众号/二维码推广等信息直接丢弃，不保留进正文。
 - **Gate 2 验收门禁**：检查 `raw_md/` 下文件数量**必须 100% 等于分片总数**，且每个文件大小 > 100 字节。未全部就绪前严禁执行组装！
@@ -57,8 +58,11 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
 ```bash
 python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --assemble "<输出工作目录>"
 ```
-脚本将按文本内真实 `## 章节标题` 自动聚合逻辑章节、隔离脚注命名空间、执行断缝审计并打包 EPUB 3。
-- **Gate 3 验收门禁**：确认生成 `assembled_chapters/`（按书本真实章节命名）、`seam_report.md`、主 Markdown 笔记以及 `.epub` 文件。
+流水线自动执行三重汇编：
+1. **接缝连续性审计与焊接 (`seam_auditor`)**：自动诊断相邻切片接口首尾对，执行跨切片引号闭环焊接（`MERGE` 对白）、未完结断句缝合（`MERGE`）与文本重叠剔除（`MERGE_DEDUP`），并生成 `seam_report.md`。
+2. **逻辑章节聚合 (`chapter_assembler`)**：依接缝仲裁平滑拼接连续文本流，按正文真实 `## 章节标题` 动态切分章节，隔离各章脚注命名空间。
+3. **出版级编译 (`epub_builder`)**：Pandoc 编译 EPUB 3，注入双向弹框注释与排版样式。
+- **Gate 3 验收门禁**：确认生成 `seam_report.md`（接口仲裁表无异常阻断）、`assembled_chapters/`（按书本真实章节命名）、全书主 Markdown 笔记与 `.epub` 文件。
 
 ### Step 4: 出版级闭环验收
 交付给用户前，执行快速自检：
@@ -69,6 +73,6 @@ python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --assemble "<输出�
 
 ## 资源索引
 
-- **提示词模板**：[references/prompt_templates.md](references/prompt_templates.md)（子智能体低 Token 派发模板）。
+- **提示词路由与原子模具**：[references/prompt_templates.md](references/prompt_templates.md)（体裁分支路由与 `references/prompts/` 原子模具集）。
 - **排版陷阱与防御**：[references/troubleshooting.md](references/troubleshooting.md)（脚注隔离、随文注防悬空、列表空行等踩坑指南）。
 - **排版样式表**：[assets/styles_book.css](assets/styles_book.css)（EPUB 3 弹框注释、字体回退与对白样式）。

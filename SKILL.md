@@ -47,6 +47,7 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
 ### Step 2: 分发分片并发清洗/转写
 读取 `subagent_jobs.json`，根据体裁从 `references/prompts/` 读取对应原子提示词模具（数字版选 `digital.txt`，散文小说选 `prose.txt`，戏剧选 `drama.txt`，学术专著选 `academic.txt`；路由索引参见 [references/prompt_templates.md](references/prompt_templates.md)），使用 `invoke_subagent` 派发任务：
 - **批次滚动派发（Rolling Batching）**：分片总数 > 4 时，**强制以 3~4 个分片为一组滚动派发**。当前批次分片全部完成并落盘后，再拉起下一批，严禁一次性全量并发冲击 API 限流（429）。
+- **极简中继与静默推进（Silent Relaying）**：批次推进期间，父 Agent **严禁对每个分片进行篇目罗列、剧情概要或细节长篇汇报**（严重膨胀对话历史上下文）。批次转换时仅允许输出单行紧凑状态（如 `批次 [01~04/24] 完成，推进批次 [05~08]`）。子 Agent 之间同样执行单行状态汇报。
 - **多模态全流程履约铁律（Anti-Downgrade Redline）**：扫描版必须完整执行视觉子 Agent 转写，以确保版式拓扑理解、跨页自然断句缝合与插图定位品质。严禁以节省 Token 或速度为由擅自切换为纯本地机械 OCR；若遇长篇任务，唯一合规路径为批次滚动推进。任何技术管道变更必须事先向用户明确请示并获得授权。
 - **目标路径**：所有子任务必须直接落盘写入 `raw_md/{md_file}`。
 - **配图规范**：无图题的插图 alt 文本保持为空 `![](images/...)`，禁止添加多余“插图”二字；仅原书印有图题时才写 `![图题](images/...)`。

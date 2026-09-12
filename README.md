@@ -111,6 +111,7 @@ python scripts/digitize_book.py --assemble "book_output"
 | `--assemble DIR` | 汇编指定工作目录下的分片 Markdown | `None` |
 | `--drama` | 启用剧本对白与舞台动作专用排版规则 | `False` |
 | `--extract-figures PDF` | 独立提取数字 PDF 中的矢量信息图与图表 | `None` |
+| `--status DIR` | 查看指定工作目录中各分片的落盘完成进度 | `None` |
 | `--title TITLE` | 指定图书标题（默认自动清洗文件名） | 自动识别 |
 | `--author AUTHOR` | 指定作者名称 | 自动识别 |
 | `--out-dir DIR` | 指定输出工作目录 | 自动生成 |

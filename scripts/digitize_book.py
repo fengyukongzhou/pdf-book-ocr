@@ -623,11 +623,27 @@ def main():
     parser.add_argument("--chunk-size", type=int, default=15, help="扫描分片每切片页数 (默认 15 页)")
     parser.add_argument("--force-scan", action="store_true", help="强制作为扫描版切分，即使存在文字层")
     parser.add_argument("--extract-figures", metavar="PDF", help="直接从数字 PDF 中提取 300 DPI 紧致矢量图表至指定目录")
+    parser.add_argument("--status", metavar="DIR", help="查看指定工作目录中各分片的落盘与转写完成进度")
     
     args = parser.parse_args()
     
     if args.doctor:
         check_environment()
+        return
+
+    if args.status:
+        work_dir = os.path.abspath(args.status)
+        raw_md_dir = os.path.join(work_dir, "raw_md")
+        plan_path = os.path.join(work_dir, "slice_plan.json")
+        total = 0
+        if os.path.exists(plan_path):
+            with open(plan_path, 'r', encoding='utf-8') as f:
+                total = len(json.load(f).get('parts', []))
+        ready_files = [f for f in os.listdir(raw_md_dir) if f.endswith('.md')] if os.path.exists(raw_md_dir) else []
+        print(f"[*] 切片完成进度: {len(ready_files)}/{total if total else '?'} 已落盘")
+        for f in sorted(ready_files):
+            size = os.path.getsize(os.path.join(raw_md_dir, f))
+            print(f"  - {f}: {size:,} 字节")
         return
 
     if args.extract_figures:

@@ -28,7 +28,7 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
        └── epub_builder: Pandoc 编译 EPUB 3 + 注入双向弹框注释
        │
        ▼ (Step 4: 出厂验收)
-《书名》.epub + 《书名》.md + images/ (存入 _inbox/)
+《书名》.epub + 《书名》.md + images/ (生成至输出工作目录)
 ```
 
 ---
@@ -76,7 +76,7 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
 ### Step 4: 出版级闭环验收
 交付给用户前，执行快速自检：
 1. 抽查 `assembled_chapters/`，确认章节名皆为书本真实章节名而非机械切片号。
-2. 确认生成的成果文件存入 `_inbox/`，向用户汇报电子书与笔记已就绪。
+2. 确认生成的成果文件已完整输出至指定工作目录（默认 `<书名>_output/` 或用户指定路径），向用户汇报电子书与笔记已就绪。
 
 ---
 

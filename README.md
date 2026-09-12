@@ -51,7 +51,7 @@
    └── epub_builder.py: 调用 Pandoc 编译 EPUB 3 并注入双向弹框注释
        │
        ▼ (Step 4: 成果交付)
-《书名》.epub 与 《书名》.md (存入 _inbox/)
+《书名》.epub 与 《书名》.md (生成至输出工作目录)
 ```
 
 ---
